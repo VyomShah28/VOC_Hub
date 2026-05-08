@@ -2,8 +2,9 @@ import uuid
 import random
 from collections import defaultdict
 from datetime import date, timedelta
-
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
+from sentence_transformers import SentenceTransformer
 from sqlalchemy import and_, case, extract, func, select
 from sqlalchemy.orm import Session
 
@@ -19,6 +20,10 @@ PAIN_POINT_BUCKETS  = {"bug_report", "usability_complaint", "process_complaint"}
 
 MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun',
                'Jul','Aug','Sep','Oct','Nov','Dec']
+
+embedder = SentenceTransformer('all-MiniLM-L6-v2')
+class ChatQuery(BaseModel):
+    question: str = Field(..., description="The natural language question from the user")
 
 
 def _sentiment_label(score: float | None) -> str:
@@ -491,7 +496,6 @@ def get_bugs(db: Session = Depends(get_db)):
         "open_bugs":           open_bugs,
     }
 
-
 @router.post("/fake-data-matrix")
 def generate_matrix_fake_data(db: Session = Depends(get_db)):
     """
@@ -637,7 +641,7 @@ def wipe_all_data(db: Session = Depends(get_db)):
             detail=f"Failed to wipe database: {str(e)}"
         )
     
-@router.post("/api/v1/chat")
+@router.post("/chat")
 async def ask_your_data(query: ChatQuery, db: Session = Depends(get_db)):
     """
     Hybrid RAG Chatbot: 

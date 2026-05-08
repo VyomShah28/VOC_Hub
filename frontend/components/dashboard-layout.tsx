@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -20,6 +21,56 @@ const navigation = [
 
 export function DashboardLayout({ children }: DashboardLayoutProps) {
   const pathname = usePathname();
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadMessage, setUploadMessage] = useState<string | null>(null);
+
+  const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    if (!file.name.endsWith(".xls") && !file.name.endsWith(".xlsx")) {
+      setUploadMessage("Only Excel files (.xls, .xlsx) are supported.");
+      event.target.value = "";
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    setIsUploading(true);
+    setUploadMessage(`Uploading ${file.name}...`);
+
+    try {
+      const baseUrl =
+        process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api/v1";
+      const response = await fetch(`${baseUrl}/feedback/upload`, {
+        method: "POST",
+        body: formData,
+      });
+
+      const payload = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(payload?.detail || "Upload failed");
+      }
+
+      setUploadMessage(payload?.message || "Upload completed successfully.");
+    } catch (error) {
+      setUploadMessage(
+        error instanceof Error ? error.message : "Failed to upload file.",
+      );
+    } finally {
+      setIsUploading(false);
+      event.target.value = "";
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  };
 
   return (
     <div className="flex h-screen bg-background">
@@ -45,10 +96,11 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                 <li key={item.href}>
                   <Link
                     href={item.href}
-                    className={`block px-4 py-3 rounded-lg transition-all duration-200 text-sm font-medium ${isActive
-                      ? "bg-primary text-primary-foreground shadow-lg"
-                      : "text-foreground hover:bg-secondary hover:text-foreground"
-                      }`}
+                    className={`block px-4 py-3 rounded-lg transition-all duration-200 text-sm font-medium ${
+                      isActive
+                        ? "bg-primary text-primary-foreground shadow-lg"
+                        : "text-foreground hover:bg-secondary hover:text-foreground"
+                    }`}
                   >
                     {item.name}
                   </Link>
@@ -66,16 +118,26 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
             <label className="flex items-center justify-center w-full px-4 py-4 bg-secondary/40 hover:bg-secondary/60 border-2 border-dashed border-border rounded-lg cursor-pointer transition-colors duration-200">
               <div className="text-center">
                 <p className="text-xs font-semibold text-foreground mb-1">
-                  Upload Data
+                  {isUploading ? "Uploading..." : "Upload Data"}
                 </p>
-                <p className="text-xs text-muted-foreground">Excel, PDF, CSV</p>
+                <p className="text-xs text-muted-foreground">
+                  Excel files only
+                </p>
               </div>
               <input
+                ref={fileInputRef}
                 type="file"
                 className="hidden"
-                accept=".xlsx,.xls,.pdf,.csv"
+                accept=".xlsx,.xls"
+                onChange={handleUpload}
+                disabled={isUploading}
               />
             </label>
+            {uploadMessage && (
+              <p className="mt-3 text-xs text-muted-foreground leading-relaxed">
+                {uploadMessage}
+              </p>
+            )}
           </div>
           <div>
             <p className="text-xs text-muted-foreground font-semibold">
