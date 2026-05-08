@@ -4,24 +4,24 @@ from collections import defaultdict
 from datetime import date, timedelta
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
-from sentence_transformers import SentenceTransformer
-from sqlalchemy import and_, case, extract, func, select
+from sqlalchemy import and_, case, extract, func, select, text
 from sqlalchemy.orm import Session
 
 from app.db.database import get_db
 from app.db.models import (
-    FeedbackProcessed, FeedbackRaw, Opportunity, Theme, ThemeWeeklyCount, ThemeItem
+    FeedbackProcessed, FeedbackRaw, Opportunity, Theme, ThemeWeeklyCount, ThemeItem, KnowledgeChunk
 )
+from app.services.bedrock_client import generate_text_with_bedrock, generate_embedding_with_bedrock
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["Dashboard"])
-BUG_BUCKETS         = {"bug_report", "process_complaint"}
+BUG_BUCKETS         = {"bug_report"}
 FEATURE_BUCKETS     = {"feature_request"}
-PAIN_POINT_BUCKETS  = {"bug_report", "usability_complaint", "process_complaint"}
-
+PAIN_POINT_BUCKETS  = {"usability_complaint", "process_complaint", "pricing_commercial", "competitive_mention"}
+OTHER_BUCKETS       = {"praise", "unclear"}
 MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun',
                'Jul','Aug','Sep','Oct','Nov','Dec']
 
-embedder = SentenceTransformer('all-MiniLM-L6-v2')
+
 class ChatQuery(BaseModel):
     question: str = Field(..., description="The natural language question from the user")
 
@@ -79,18 +79,30 @@ def get_overview(db: Session = Depends(get_db)):
     )
     active_issues = (
         db.execute(
-            select(func.count())
-            .select_from(Opportunity)
+            select(func.sum(Opportunity.frequency))
             .where(Opportunity.intent_bucket.in_(BUG_BUCKETS))
         ).scalar() or 0
     )
     feature_requests_count = (
         db.execute(
-            select(func.count())
-            .select_from(Opportunity)
+            select(func.sum(Opportunity.frequency))
             .where(Opportunity.intent_bucket.in_(FEATURE_BUCKETS))
         ).scalar() or 0
     )
+    pain_points_count = (
+        db.execute(
+            select(func.sum(Opportunity.frequency))
+            .where(Opportunity.intent_bucket.in_(PAIN_POINT_BUCKETS))
+        ).scalar() or 0
+    )
+    others_count = (
+        db.execute(
+            select(func.sum(Opportunity.frequency))
+            .where(Opportunity.intent_bucket.in_(OTHER_BUCKETS))
+        ).scalar() or 0
+    )
+    
+    total_feedback = active_issues + feature_requests_count + pain_points_count + others_count
 
     six_months_ago = date.today().replace(day=1) - timedelta(days=150)
 
@@ -160,9 +172,11 @@ def get_overview(db: Session = Depends(get_db)):
     return {
         "kpis": {
             "total_feedback":        total_feedback,
-            "positive_sentiment_pct": positive_sentiment_pct,
             "active_issues":         active_issues,
             "feature_requests":      feature_requests_count,
+            "pain_points":           pain_points_count,
+            "others":                others_count,
+            "positive_sentiment_pct": positive_sentiment_pct,
         },
         "monthly_trend":        monthly_trend,
         "sentiment_distribution": sentiment_distribution,
@@ -259,6 +273,7 @@ def get_pain_points(db: Session = Depends(get_db)):
 
     table_rows = db.execute(
         select(
+            Theme.id,
             Theme.name,
             Opportunity.intent_bucket,
             Opportunity.priority_label,
@@ -272,6 +287,18 @@ def get_pain_points(db: Session = Depends(get_db)):
         .order_by(Opportunity.opportunity_score.desc())
         .limit(20)
     ).all()
+    
+    theme_ids = [r.id for r in table_rows]
+    sample_texts_map = {}
+    if theme_ids:
+        raw_texts = db.execute(
+            select(ThemeItem.theme_id, FeedbackRaw.raw_text)
+            .join(FeedbackRaw, FeedbackRaw.id == ThemeItem.feedback_id)
+            .where(ThemeItem.theme_id.in_(theme_ids))
+        ).all()
+        for r in raw_texts:
+            if r.theme_id not in sample_texts_map:
+                sample_texts_map[r.theme_id] = r.raw_text
 
     top_pain_points = [
         {
@@ -280,6 +307,7 @@ def get_pain_points(db: Session = Depends(get_db)):
             "priority":   r.priority_label,
             "mentions":   r.frequency,
             "arr_at_risk": round(r.total_arr, 0),
+            "raw_text":   sample_texts_map.get(r.id, "No sample text available.")
         }
         for r in table_rows
     ]
@@ -348,6 +376,7 @@ def get_features(db: Session = Depends(get_db)):
 
     top_rows = db.execute(
         select(
+            Theme.id,
             Theme.name,
             Theme.keywords,
             Opportunity.frequency,
@@ -364,6 +393,18 @@ def get_features(db: Session = Depends(get_db)):
         .limit(20)
     ).all()
 
+    theme_ids = [r.id for r in top_rows]
+    sample_texts_map = {}
+    if theme_ids:
+        raw_texts = db.execute(
+            select(ThemeItem.theme_id, FeedbackRaw.raw_text)
+            .join(FeedbackRaw, FeedbackRaw.id == ThemeItem.feedback_id)
+            .where(ThemeItem.theme_id.in_(theme_ids))
+        ).all()
+        for r in raw_texts:
+            if r.theme_id not in sample_texts_map:
+                sample_texts_map[r.theme_id] = r.raw_text
+
     top_feature_requests = [
         {
             "feature":           r.name,
@@ -377,6 +418,7 @@ def get_features(db: Session = Depends(get_db)):
             "priority":          r.priority_label,
             "opportunity_score": r.opportunity_score,
             "alignment_reason":  r.alignment_reason,
+            "raw_text":          sample_texts_map.get(r.id, "No sample text available.")
         }
         for r in top_rows
     ]
@@ -471,6 +513,18 @@ def get_bugs(db: Session = Depends(get_db)):
         .limit(20)
     ).all()
 
+    theme_ids = [r.id for r in open_rows]
+    sample_texts_map = {}
+    if theme_ids:
+        raw_texts = db.execute(
+            select(ThemeItem.theme_id, FeedbackRaw.raw_text)
+            .join(FeedbackRaw, FeedbackRaw.id == ThemeItem.feedback_id)
+            .where(ThemeItem.theme_id.in_(theme_ids))
+        ).all()
+        for r in raw_texts:
+            if r.theme_id not in sample_texts_map:
+                sample_texts_map[r.theme_id] = r.raw_text
+
     open_bugs = [
         {
             "id":          f"BUG-{str(r.id).zfill(3)}",
@@ -479,6 +533,7 @@ def get_bugs(db: Session = Depends(get_db)):
             "status":      "Open",
             "reports":     r.frequency,
             "arr_at_risk": round(r.total_arr, 0),
+            "raw_text":    sample_texts_map.get(r.id, "No sample text available.")
         }
         for r in open_rows
     ]
@@ -579,7 +634,7 @@ def generate_matrix_fake_data(db: Session = Depends(get_db)):
             sentiment_score=random.uniform(-0.8, 0.4), # Mostly neutral-to-negative for testing
             urgency_keyword_score=random.uniform(0.3, 0.9),
             arr=random.uniform(50000, 2000000), # Matrix deals with large enterprise contracts
-            embedding=[random.uniform(-1, 1) for _ in range(384)]
+            embedding=[random.uniform(-1, 1) for _ in range(256)]
         )
         db.add(processed)
 
@@ -648,13 +703,12 @@ async def ask_your_data(query: ChatQuery, db: Session = Depends(get_db)):
     1. Vector searches specific feedback.
     2. Joins those matches to Theme/Opportunity for aggregate stats (frequency, ARR).
     3. Pulls global top issues for broad questions.
+    4. Searches KnowledgeBase for PDF context.
     """
     try:
-        global embedder
-        print(f"💬 [CHATBOT] User asks: '{query.question}'")
-        question_embedding = embedder.encode(query.question).tolist()
+        question_embedding = generate_embedding_with_bedrock(query.question)
         search_query = text("""
-            SELECT fp.feedback_id, fp.clean_text, fp.intents, fp.arr, fr.source, fr.segment
+            SELECT fp.feedback_id, fp.clean_text, fp.intents, fp.arr, fr.source, fr.segment, fr.raw_text
             FROM feedback_processed fp
             JOIN feedback_raw fr ON fp.feedback_id = fr.id
             ORDER BY fp.embedding <=> :q_emb
@@ -663,24 +717,25 @@ async def ask_your_data(query: ChatQuery, db: Session = Depends(get_db)):
         
         raw_results = db.execute(search_query, {"q_emb": str(question_embedding)}).fetchall()
         
-        if not raw_results:
-            return {"answer": "I don't have any data matching that query yet."}
-        feedback_ids = [r.feedback_id for r in raw_results]
+        feedback_ids = []
+        theme_results = []
+        if raw_results:
+            feedback_ids = [r.feedback_id for r in raw_results]
 
-        theme_results = db.execute(
-            select(
-                Theme.name, 
-                Theme.intent_bucket, 
-                Opportunity.frequency, 
-                Opportunity.total_arr, 
-                Opportunity.priority_label,
-                Opportunity.velocity
-            )
-            .join(ThemeItem, ThemeItem.theme_id == Theme.id)
-            .join(Opportunity, Opportunity.theme_id == Theme.id)
-            .where(ThemeItem.feedback_id.in_(feedback_ids))
-            .distinct()
-        ).all()
+            theme_results = db.execute(
+                select(
+                    Theme.name, 
+                    Theme.intent_bucket, 
+                    Opportunity.frequency, 
+                    Opportunity.total_arr, 
+                    Opportunity.priority_label,
+                    Opportunity.velocity
+                )
+                .join(ThemeItem, ThemeItem.theme_id == Theme.id)
+                .join(Opportunity, Opportunity.theme_id == Theme.id)
+                .where(ThemeItem.feedback_id.in_(feedback_ids))
+                .distinct()
+            ).all()
 
         global_results = db.execute(
             select(Theme.name, Opportunity.intent_bucket, Opportunity.frequency, Opportunity.priority_label)
@@ -689,49 +744,64 @@ async def ask_your_data(query: ChatQuery, db: Session = Depends(get_db)):
             .limit(5)
         ).all()
 
-        context_block = "=== RELEVANT AGGREGATED THEMES (Use this for frequency, ARR, or priority questions) ===\n"
-        for r in theme_results:
-            context_block += f"- Theme: {r.name} | Category: {r.intent_bucket} | Frequency: {r.frequency} | ARR at Risk: ${r.total_arr} | Priority: {r.priority_label}\n"
+        # Search PDF Knowledge Base
+        pdf_results = db.execute(
+            select(KnowledgeChunk.chunk_text)
+            .order_by(KnowledgeChunk.embedding.op('<=>')(question_embedding))
+            .limit(3)
+        ).all()
 
-        context_block += "\n=== RELEVANT SPECIFIC FEEDBACK (Use this for specific customer quotes/examples) ===\n"
-        for i, row in enumerate(raw_results):
-            context_block += f"[{i+1}] Segment: {row.segment} | Source: {row.source} | ARR: ${row.arr}\n"
-            context_block += f"    Feedback: {row.clean_text}\n"
+        context_block = ""
+        pdf_sources_used = 0
+        
+        if pdf_results:
+            pdf_sources_used = len(pdf_results)
+            context_block += "=== STATIC REFERENCE DOCUMENTATION (Company Specs/PDFs) ===\n"
+            for doc in pdf_results:
+                context_block += f"- {doc.chunk_text}\n"
+            context_block += "\n"
 
-        context_block += "\n=== GLOBAL SYSTEM TOP 5 ISSUES (Use ONLY if user asks for general 'top', 'highest', or 'most frequent' issues overall) ===\n"
+        if theme_results:
+            context_block += "=== RELEVANT AGGREGATED THEMES (Use this for frequency, ARR, or priority questions) ===\n"
+            for r in theme_results:
+                context_block += f"- Theme: {r.name} | Category: {r.intent_bucket} | Frequency: {r.frequency} | ARR at Risk: ${r.total_arr} | Priority: {r.priority_label}\n"
+            context_block += "\n"
+
+        if raw_results:
+            context_block += "=== RELEVANT SPECIFIC FEEDBACK (Use this for specific customer quotes/examples) ===\n"
+            for i, row in enumerate(raw_results):
+                context_block += f"[{i+1}] Segment: {row.segment} | Source: {row.source} | ARR: ${row.arr}\n"
+                context_block += f"    Cleaned Feedback: {row.clean_text}\n"
+                context_block += f"    Raw Original Text: {row.raw_text}\n"
+            context_block += "\n"
+
+        context_block += "=== GLOBAL SYSTEM TOP 5 ISSUES (Use ONLY if user asks for general 'top', 'highest', or 'most frequent' issues overall) ===\n"
         for r in global_results:
             context_block += f"- {r.name} ({r.intent_bucket}) - {r.frequency} mentions, Priority: {r.priority_label}\n"
 
         system_prompt = """
         You are an AI Product Analyst for a B2B SaaS company. 
-        You are answering a question from leadership based on customer feedback.
+        You are answering a question from leadership based on customer feedback and documentation.
         
         RULES:
         1. Base your answer STRICTLY on the Context provided below. Do not make up information.
-        2. If the user asks about the "frequency", "priority", or "total impact" of a specific issue, use the 'RELEVANT AGGREGATED THEMES' data.
-        3. If the user asks for examples or specific details, use the 'RELEVANT SPECIFIC FEEDBACK' data.
-        4. If the user asks broad questions like "What are the most frequent bugs?", use the 'GLOBAL SYSTEM TOP 5 ISSUES'.
-        5. If the context does not contain the answer, say "I don't have enough data to answer that."
-        6. Cite the segments and ARR impact where relevant to show business value.
+        2. If the user asks about product rules, general specifications, or company policy, use the 'STATIC REFERENCE DOCUMENTATION'.
+        3. If the user asks about the "frequency", "priority", or "total impact" of a specific issue, use the 'RELEVANT AGGREGATED THEMES'.
+        4. If the user asks for examples or specific details, use the 'RELEVANT SPECIFIC FEEDBACK'.
+        5. If the user asks broad questions like "What are the most frequent bugs?", use the 'GLOBAL SYSTEM TOP 5 ISSUES'.
+        6. If the context does not contain the answer, say "I don't have enough data to answer that."
+        7. Cite the segments and ARR impact where relevant to show business value.
         """
         
-        client = Groq(api_key=settings.GROQ_API_KEY)
-
-        response = client.chat.completions.create(
-            model="llama-3.1-8b-instant", # Or llama-3.3-70b-versatile for smarter routing
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Context Database Records:\n{context_block}\n\nUser Question: {query.question}"}
-            ]
-        )
-        
-        final_answer = response.choices[0].message.content
+        user_prompt = f"Context Database Records:\n{context_block}\n\nUser Question: {query.question}"
+        final_answer = generate_text_with_bedrock(system_prompt, user_prompt, is_json=False)
 
         return {
             "question": query.question,
             "answer": final_answer,
-            "sources_used": len(raw_results),
-            "themes_referenced": len(theme_results)
+            "dynamic_sources_used": len(raw_results),
+            "themes_referenced": len(theme_results),
+            "pdf_sources_used": pdf_sources_used
         }
 
     except Exception as e:

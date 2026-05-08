@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.api.routes import feedback, dashboard
+from app.api.routes import feedback, dashboard, knowledge
 
 from app.db.database import engine, Base
 from app.db import models 
@@ -24,6 +24,7 @@ def create_tables():
 
 app.include_router(dashboard.router)
 app.include_router(feedback.router)
+app.include_router(knowledge.router)
 
 @app.get("/")
 def root():

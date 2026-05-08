@@ -4,14 +4,12 @@ import pandas as pd
 from fastapi import BackgroundTasks
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from groq import Groq
+from app.services.bedrock_client import generate_text_with_bedrock
 
 from app.db.models import FeedbackRaw
 from app.core.config import settings
 from app.services.ai_pipeline import run_ai_pipeline
 from app.services.clustering_service import run_clustering_pipeline
-
-client = Groq(api_key=settings.GROQ_API_KEY)
 
 BATCH_SIZE = 30
 
@@ -84,7 +82,7 @@ def _process_batch(batch: pd.DataFrame, db: Session) -> list[str]:
     """
     csv_data = batch.to_csv(index=False)
 
-    prompt = f"""
+    system_prompt = """
     You are an intelligent data extraction pipeline for a B2B SaaS platform.
     Read the following CSV data (which came from an Excel upload).
     Convert each row into a standardized JSON record.
@@ -103,18 +101,13 @@ def _process_batch(batch: pd.DataFrame, db: Session) -> list[str]:
         - Must be a TOP LEVEL field, NOT inside metadata.
 
     Respond ONLY with a JSON object containing a single key "records" which is an array of these extracted objects.
-
-    CSV Data:
-    {csv_data}
     """
 
+    user_prompt = f"CSV Data:\n{csv_data}"
+
     try:
-        response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"}
-        )
-        extracted_data = json.loads(response.choices[0].message.content)
+        response_text = generate_text_with_bedrock(system_prompt, user_prompt, is_json=True)
+        extracted_data = json.loads(response_text)
         records = extracted_data.get("records", [])
         print(f"[EXCEL] LLM extracted {len(records)} records from batch.")
     except Exception as e:

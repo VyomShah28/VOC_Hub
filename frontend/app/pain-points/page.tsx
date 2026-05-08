@@ -153,6 +153,7 @@ export default function PainPointsPage() {
               { key: 'priority', label: 'Priority' },
               { key: 'mentions', label: 'Mentions' },
               { key: 'arr_at_risk', label: 'ARR at Risk' },
+              { key: 'raw_text', label: 'Raw Text' },
             ]}
             data={top_pain_points}
           />

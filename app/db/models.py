@@ -1,4 +1,5 @@
-from sqlalchemy import Column, String, Date, Boolean, Integer, Float, ForeignKey, Text, UniqueConstraint
+from sqlalchemy import Column, String, Date, Boolean, Integer, Float, ForeignKey, Text, UniqueConstraint, DateTime
+from datetime import datetime
 from sqlalchemy.dialects.postgresql import JSONB
 from pgvector.sqlalchemy import Vector
 from app.db.database import Base
@@ -25,7 +26,7 @@ class FeedbackProcessed(Base):
     sentiment_score = Column(Float, default=0.0)
     urgency_keyword_score = Column(Float, default=0.0)
     arr = Column(Float, default=0.0)
-    embedding = Column(Vector(384))
+    embedding = Column(Vector(256))
 
 
 class Theme(Base):
@@ -79,3 +80,20 @@ class Opportunity(Base):
     artifact_prd = Column(JSONB, default=None)
     outcome_statement = Column(Text, default=None)
     updated_at = Column(Date)
+
+
+class KnowledgeFile(Base):
+    __tablename__ = 'knowledge_files'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    filename = Column(String, nullable=False)
+    file_size_bytes = Column(Integer, nullable=False)
+    file_path = Column(String, nullable=False)
+    uploaded_at = Column(DateTime, default=datetime.utcnow)
+
+
+class KnowledgeChunk(Base):
+    __tablename__ = 'knowledge_chunks'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    file_id = Column(Integer, ForeignKey('knowledge_files.id', ondelete='CASCADE'), nullable=False, index=True)
+    chunk_text = Column(Text, nullable=False)
+    embedding = Column(Vector(256))

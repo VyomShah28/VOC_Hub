@@ -120,6 +120,7 @@ export default function BugsPage() {
               { key: 'status', label: 'Status' },
               { key: 'reports', label: 'Reports' },
               { key: 'arr_at_risk', label: 'ARR at Risk' },
+              { key: 'raw_text', label: 'Raw Text' },
             ]}
             data={open_bugs}
           />

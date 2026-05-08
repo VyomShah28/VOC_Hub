@@ -6,14 +6,11 @@ from sqlalchemy import select, delete
 from bertopic import BERTopic
 from hdbscan import HDBSCAN
 from sklearn.feature_extraction.text import CountVectorizer
-from groq import Groq
-
 from app.db.database import SessionLocal
 from app.db.models import FeedbackProcessed, FeedbackRaw, Theme, ThemeItem, ThemeWeeklyCount, Opportunity
 from app.core.config import settings
 from app.services.scoring_service import run_scoring_pipeline
-
-client = Groq(api_key=settings.GROQ_API_KEY)
+from app.services.bedrock_client import generate_text_with_bedrock
 
 INTENT_BUCKETS = [
     "bug_report",
@@ -89,13 +86,8 @@ def _generate_theme_name(keywords: list[str], sample_texts: list[str], intent_bu
     Output ONLY the JSON object, nothing else.
     """
 
-    response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=[{"role": "user", "content": prompt}],
-        response_format={"type": "json_object"}
-    )
-
-    result = json.loads(response.choices[0].message.content)
+    response_text = generate_text_with_bedrock("", prompt, is_json=True)
+    result = json.loads(response_text)
     return {
         "name": result.get("name", f"{intent_bucket} cluster"),
         "description": result.get("description", "")

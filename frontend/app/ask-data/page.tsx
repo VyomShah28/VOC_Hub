@@ -1,7 +1,11 @@
 'use client';
 
 import { DashboardLayout } from '@/components/dashboard-layout';
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import api from '@/lib/api';
+import { Send, User, Bot, Sparkles } from 'lucide-react';
 
 interface ChatMessage {
   id: string;
@@ -17,33 +21,33 @@ const suggestionQueries = [
   'What is the trend in NPS scores?',
 ];
 
-const mockResponses: Record<string, string> = {
-  'what is our highest pain point by segment?': 'Based on our data, the highest pain point varies by segment:\n\n• Enterprise: Performance (12 mentions) - App load time takes 5+ seconds\n• Mid-Market: Complex UI (18 mentions) - Dashboard navigation is confusing\n• SMB: Learning Curve (24 mentions) - Documentation could be clearer\n• Startup: Missing Features (19 mentions) - Integration with popular tools needed\n\nOverall, the most critical issue affecting revenue is performance in the Enterprise segment.',
-  'show me the top feature requests this month': 'Here are the top feature requests for June 2024:\n\n1. API Rate Limiting Control - 234 votes\n2. Dark Mode Theme - 198 votes\n3. Advanced Filtering - 176 votes\n4. Email Notifications - 154 votes\n5. Custom Reports Export - 142 votes\n\nThe dark mode request shows 32% month-over-month growth and is trending strongly across all segments.',
-  'which competitor is taking the most deals?': 'Competitive analysis shows:\n\n• CompetitorA: 27 lost deals (67% price-driven, 33% feature-driven)\n• CompetitorB: 27 lost deals (44% price-driven, 56% feature-driven)\n• CompetitorC: 8 lost deals (50% price-driven, 50% feature-driven)\n\nCompetitorA is winning primarily on price, while CompetitorB is winning on feature completeness. We should focus on our competitive pricing strategy and accelerate feature development.',
-  'what is the trend in nps scores?': 'NPS Score Trend (6 months):\n\nJan: 42 → Feb: 45 → Mar: 48 → Apr: 52 → May: 56 → Jun: 61\n\nThis represents a 19-point improvement (+45%) in just 6 months. Key drivers:\n• Customer satisfaction increased from 72% to 85%\n• Support resolution time improved by 3 days\n• Product reliability initiatives reduced downtime\n\nWe&apos;re on track to reach NPS 70+ by Q4 2024 if current trends continue.',
-};
-
 export default function AskYourDataPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: '1',
       role: 'assistant',
-      content: 'Welcome to Ask Your Data! I can help you explore customer feedback insights, sentiment analysis, and VOC metrics. Try asking me questions like "What is our highest pain point?" or "Show feature requests by category".',
+      content: 'Welcome to Ask Your Data! I can help you explore customer feedback insights, sentiment analysis, and VOC metrics. Try asking me questions like **"What is our highest pain point?"** or **"Show feature requests by category"**.',
       timestamp: new Date(),
     },
   ]);
 
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll to bottom of chat
+  useEffect(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, isLoading]);
 
   const handleSendMessage = async (queryText?: string) => {
     const textToSend = queryText || input.trim();
     if (!textToSend) return;
 
-    // Add user message
     const userMessage: ChatMessage = {
-      id: String(messages.length + 1),
+      id: String(Date.now()),
       role: 'user',
       content: textToSend,
       timestamp: new Date(),
@@ -53,125 +57,133 @@ export default function AskYourDataPage() {
     setInput('');
     setIsLoading(true);
 
-    // Simulate API delay
-    setTimeout(() => {
-      const responseKey = textToSend.toLowerCase();
-      let responseContent = mockResponses[responseKey];
-
-      if (!responseContent) {
-        // Find best match for similar queries
-        const matchedKey = Object.keys(mockResponses).find((key) =>
-          responseKey.includes(key.split(' ').slice(0, 3).join(' '))
-        );
-        responseContent = matchedKey
-          ? mockResponses[matchedKey]
-          : `I found data related to your query. Let me analyze the VOC metrics...\n\nBased on the available feedback data, ${textToSend.toLowerCase().includes('customer') ? 'customers are expressing concerns about performance and integration needs' : 'the data shows interesting trends in your feedback metrics'}. Would you like me to dive deeper into any specific segment or metric?`;
-      }
-
+    try {
+      const response = await api.post('/dashboard/chat', { question: textToSend });
+      const data = response.data;
+      
       const assistantMessage: ChatMessage = {
-        id: String(messages.length + 2),
+        id: String(Date.now() + 1),
         role: 'assistant',
-        content: responseContent,
+        content: data.answer || "I'm sorry, I couldn't generate an answer.",
         timestamp: new Date(),
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
+    } catch (error) {
+      console.error("Chat error:", error);
+      const errorMessage: ChatMessage = {
+        id: String(Date.now() + 1),
+        role: 'assistant',
+        content: 'There was an error communicating with the AI. Please try again later.',
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, errorMessage]);
+    } finally {
       setIsLoading(false);
-    }, 800);
+    }
   };
 
   return (
     <DashboardLayout>
-      <div className="flex flex-col h-full w-full max-w-4xl">
-        {/* Header */}
-        <div className="mb-6 flex-shrink-0">
-          <p className="text-xs uppercase tracking-widest font-semibold text-muted-foreground mb-2">Natural Language Interface</p>
-          <h2 className="text-2xl font-bold text-foreground tracking-tight">Query Your Data</h2>
-          <p className="text-sm text-muted-foreground mt-2">Ask questions about customer feedback, sentiment, pain points, and business metrics in natural language.</p>
-        </div>
-
-        {/* Chat Messages */}
-        <div className="flex-1 min-h-0 overflow-y-auto bg-card border border-border rounded-lg p-8 mb-6 space-y-6">
-          {messages.map((message) => (
-            <div
-              key={message.id}
-              className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-            >
+      <div className="flex flex-col h-[calc(100vh-8rem)] w-full">
+        {/* Chat Area */}
+        <div className="flex-1 min-h-0 bg-card border border-border rounded-xl shadow-sm flex flex-col overflow-hidden">
+          {/* Messages Container */}
+          <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6">
+            {messages.map((message) => (
               <div
-                className={`max-w-2xl rounded-lg px-6 py-4 ${
-                  message.role === 'user'
-                    ? 'bg-primary text-primary-foreground shadow-md'
-                    : 'bg-secondary/40 text-foreground border border-border'
-                }`}
+                key={message.id}
+                className={`flex gap-4 ${message.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
               >
-                <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">{message.content}</p>
-                <span className="text-xs opacity-60 mt-2 block">
-                  {message.timestamp.toLocaleTimeString()}
-                </span>
+                {/* Avatar */}
+                <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${
+                  message.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-secondary border border-border text-foreground'
+                }`}>
+                  {message.role === 'user' ? <User size={20} /> : <Bot size={20} />}
+                </div>
+
+                {/* Message Bubble */}
+                <div
+                  className={`max-w-[80%] rounded-2xl px-6 py-4 ${
+                    message.role === 'user'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-secondary/40 text-foreground border border-border'
+                  }`}
+                >
+                  <div className={`prose prose-sm max-w-none ${message.role === 'user' ? 'prose-invert' : 'dark:prose-invert'}
+                                   prose-p:leading-relaxed prose-pre:bg-secondary prose-pre:border prose-pre:border-border`}
+                  >
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {message.content}
+                    </ReactMarkdown>
+                  </div>
+                  <span className={`text-[10px] block mt-2 opacity-60 ${message.role === 'user' ? 'text-right' : 'text-left'}`}>
+                    {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </div>
               </div>
-            </div>
-          ))}
-          {isLoading && (
-            <div className="flex justify-start">
-              <div className="bg-secondary text-foreground border border-border rounded-lg px-4 py-3">
-                <div className="flex gap-2">
+            ))}
+            
+            {/* Loading Indicator */}
+            {isLoading && (
+              <div className="flex gap-4 flex-row">
+                <div className="flex-shrink-0 w-10 h-10 rounded-full bg-secondary border border-border text-foreground flex items-center justify-center">
+                  <Bot size={20} />
+                </div>
+                <div className="bg-secondary/40 text-foreground border border-border rounded-2xl px-6 py-4 flex items-center space-x-2">
                   <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce"></div>
                   <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
                   <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
                 </div>
               </div>
-            </div>
-          )}
-        </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
 
-        {/* Suggestions */}
-        {messages.length === 1 && (
-          <div className="mb-6 flex-shrink-0">
-            <p className="text-xs uppercase tracking-widest font-semibold text-muted-foreground mb-4">Example Queries</p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {suggestionQueries.map((query, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => handleSendMessage(query)}
-                  className="text-left p-4 bg-secondary/40 hover:bg-secondary/60 border border-border rounded-lg transition-all duration-200 text-sm text-foreground hover:border-primary/40 font-medium"
-                >
-                  {query}
-                </button>
-              ))}
+          {/* Input Area (Sticky at bottom inside the card) */}
+          <div className="p-4 bg-card border-t border-border">
+            {messages.length === 1 && (
+              <div className="mb-4">
+                <p className="text-xs uppercase tracking-widest font-semibold text-muted-foreground mb-3 px-1">Try asking:</p>
+                <div className="flex flex-wrap gap-2">
+                  {suggestionQueries.map((query, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => handleSendMessage(query)}
+                      className="px-4 py-2 bg-secondary/50 hover:bg-secondary border border-border rounded-full transition-colors text-xs text-foreground font-medium"
+                    >
+                      {query}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center gap-3 relative">
+              <input
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSendMessage();
+                  }
+                }}
+                placeholder="Ask your data anything..."
+                disabled={isLoading}
+                className="flex-1 bg-input/50 border border-border rounded-full pl-6 pr-14 py-4 text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:bg-input transition-all duration-200"
+              />
+              <button
+                onClick={() => handleSendMessage()}
+                disabled={isLoading || !input.trim()}
+                className="absolute right-2 top-1/2 -translate-y-1/2 bg-primary hover:bg-primary/90 disabled:opacity-40 disabled:hover:bg-primary text-primary-foreground p-2 rounded-full transition-all duration-200"
+                aria-label="Send message"
+              >
+                <Send size={18} />
+              </button>
             </div>
           </div>
-        )}
-
-        {/* Input Area */}
-        <div className="flex gap-3 flex-shrink-0">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyPress={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                handleSendMessage();
-              }
-            }}
-            placeholder="Ask me about pain points, features, bugs, trends, segments..."
-            disabled={isLoading}
-            className="flex-1 bg-input border border-border rounded-lg px-5 py-3 text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50 transition-all duration-200"
-          />
-          <button
-            onClick={() => handleSendMessage()}
-            disabled={isLoading || !input.trim()}
-            className="bg-primary hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed text-primary-foreground px-8 py-3 rounded-lg font-semibold transition-all duration-200 whitespace-nowrap"
-          >
-            {isLoading ? 'Analyzing...' : 'Send'}
-          </button>
-        </div>
-
-        {/* Info Box */}
-        <div className="mt-4 flex-shrink-0 bg-secondary/40 border border-border rounded-lg p-5">
-          <p className="text-xs text-muted-foreground leading-relaxed">
-            <span className="font-semibold">Note:</span> This interface supports natural language queries about customer feedback, sentiment analysis, pain points, feature requests, bugs, trends, and customer segments. Ask questions as you would in a business setting.
-          </p>
         </div>
       </div>
     </DashboardLayout>

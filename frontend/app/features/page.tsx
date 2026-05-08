@@ -85,6 +85,7 @@ export default function FeaturesPage() {
                   { key: 'status', label: 'Status' },
                   { key: 'votes', label: 'Votes' },
                   { key: 'arr_demand', label: 'ARR Demand' },
+                  { key: 'raw_text', label: 'Raw Text' },
                 ]}
                 data={top_feature_requests}
               />

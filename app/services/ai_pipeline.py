@@ -1,16 +1,9 @@
 import json
-from sentence_transformers import SentenceTransformer
 from sqlalchemy import select
-from groq import Groq
-
 from app.db.database import SessionLocal
 from app.db.models import FeedbackRaw, FeedbackProcessed
 from app.core.config import settings
-
-print("Loading embedding model (all-MiniLM-L6-v2)...")
-embedder = SentenceTransformer('all-MiniLM-L6-v2')
-client = Groq(api_key=settings.GROQ_API_KEY)
-
+from app.services.bedrock_client import generate_text_with_bedrock, generate_embedding_with_bedrock
 def run_ai_pipeline(feedback_id: str):
     db = SessionLocal()
     try:
@@ -52,20 +45,13 @@ def run_ai_pipeline(feedback_id: str):
         Base this purely on the business impact and time sensitivity implied by the text.
         """
 
-        response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Raw Text: {raw_record.raw_text}"}
-            ],
-            response_format={"type": "json_object"}
-        )
-
-        ai_result = json.loads(response.choices[0].message.content)
+        user_prompt = f"Raw Text: {raw_record.raw_text}"
+        response_text = generate_text_with_bedrock(system_prompt, user_prompt, is_json=True)
+        ai_result = json.loads(response_text)
         clean_text = ai_result.get("clean_text", raw_record.raw_text)
         intents = ai_result.get("intents", ["unclear"])
 
-        embedding_vector = embedder.encode(clean_text).tolist()
+        embedding_vector = generate_embedding_with_bedrock(clean_text)
 
         urgency_score = round(max(0.0, min(1.0, float(ai_result.get("urgency_score", 0.0)))), 3)
         sentiment_score = round(max(-1.0, min(1.0, float(ai_result.get("sentiment_score", 0.0)))), 3)

@@ -13,6 +13,7 @@ const navigation = [
   { name: "Pain Points", href: "/pain-points" },
   { name: "Features", href: "/features" },
   { name: "Bugs", href: "/bugs" },
+  { name: "Increase Model Knowledge Base", href: "/knowledge" },
   // { name: "Trends", href: "/trends" },
   // { name: 'Segments', href: '/segments' },
   // { name: "Lost Deals", href: "/lost-deals" },
@@ -24,6 +25,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState<string | null>(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -73,19 +75,40 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   };
 
   return (
-    <div className="flex h-screen bg-background">
+    <div className="flex h-screen bg-background overflow-hidden relative">
+      {/* Sidebar Overlay for mobile/tablet */}
+      {!isSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-background/80 backdrop-blur-sm z-20 lg:hidden"
+          onClick={() => setIsSidebarOpen(true)}
+        />
+      )}
+      
       {/* Sidebar */}
-      <aside className="w-72 bg-card border-r border-border flex flex-col">
-        <div className="p-8 border-b border-border">
-          <h1 className="text-2xl font-bold text-primary tracking-tight">
-            VOC Hub
-          </h1>
-          <p className="text-xs uppercase tracking-widest text-muted-foreground mt-2 font-semibold">
-            Customer Intelligence Platform
-          </p>
+      <aside 
+        className={`fixed inset-y-0 left-0 z-30 w-72 bg-card border-r border-border flex flex-col transition-transform duration-300 ease-in-out lg:relative ${
+          isSidebarOpen ? "translate-x-0" : "-translate-x-full"
+        } ${!isSidebarOpen ? "lg:hidden" : ""}`}
+      >
+        <div className="p-8 border-b border-border flex justify-between items-center">
+          <div>
+            <h1 className="text-2xl font-bold text-primary tracking-tight">
+              VOC Hub
+            </h1>
+            <p className="text-xs uppercase tracking-widest text-muted-foreground mt-2 font-semibold">
+              Customer Intelligence Platform
+            </p>
+          </div>
+          {/* Close button for mobile inside sidebar */}
+          <button 
+            onClick={() => setIsSidebarOpen(false)}
+            className="lg:hidden p-2 text-muted-foreground hover:bg-secondary rounded-md"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          </button>
         </div>
 
-        <nav className="flex-1 p-6 space-y-1">
+        <nav className="flex-1 p-6 space-y-1 overflow-y-auto">
           <p className="text-xs uppercase tracking-widest text-muted-foreground font-semibold mb-4 px-4">
             Core Analytics
           </p>
@@ -148,8 +171,15 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 flex flex-col overflow-hidden">
-        <header className="bg-card border-b border-border px-8 py-6 shadow-sm">
+      <main className="flex-1 flex flex-col h-screen overflow-hidden w-full">
+        <header className="bg-card border-b border-border px-8 py-6 shadow-sm flex items-center gap-4 shrink-0">
+          <button 
+            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+            className="p-2 text-muted-foreground hover:bg-secondary rounded-md transition-colors"
+            aria-label="Toggle Sidebar"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+          </button>
           <h2 className="text-2xl font-bold text-foreground tracking-tight">
             {navigation.find((item) => item.href === pathname)?.name ||
               "Dashboard"}

@@ -51,11 +51,12 @@ export default function OverviewPage() {
         {/* Executive Summary Section */}
         <div>
           <p className="text-xs uppercase tracking-widest font-semibold text-muted-foreground mb-6">Key Performance Indicators</p>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">
             <MetricCard label="Total Feedback" value={kpis.total_feedback} />
-            <MetricCard label="Positive Sentiment" value={`${kpis.positive_sentiment_pct}%`} />
             <MetricCard label="Active Issues" value={kpis.active_issues} />
             <MetricCard label="Feature Requests" value={kpis.feature_requests} />
+            <MetricCard label="Pain Points" value={kpis.pain_points} />
+            <MetricCard label="Others" value={kpis.others} />
           </div>
         </div>
 
