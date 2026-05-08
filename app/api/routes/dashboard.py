@@ -492,92 +492,243 @@ def get_bugs(db: Session = Depends(get_db)):
     }
 
 
-@router.post("/fake-data")
-def generate_fake_data(db: Session = Depends(get_db)):
+@router.post("/fake-data-matrix")
+def generate_matrix_fake_data(db: Session = Depends(get_db)):
     """
-    Automatically generates 10 fake entries in all tables for testing.
+    Generates 30 realistic entries tailored to Matrix Comsec's product lines.
     """
     intent_buckets = list(BUG_BUCKETS | FEATURE_BUCKETS | PAIN_POINT_BUCKETS)
     priorities = ["Critical", "High", "Medium", "Low"]
     
-    # Generate Themes
-    themes = []
-    for i in range(10):
+    # Real-world Themes for Matrix Comsec
+    matrix_themes = [
+        # Video Surveillance (SATATYA Range)
+        {"name": "NVR RAID Configuration Error", "bucket": "Firmware Issue", "kw": ["NVR", "RAID", "Storage"]},
+        {"name": "SATATYA Vision AI Face Detection", "bucket": "AI Analytics Request", "kw": ["AI", "Face Recognition", "Precision"]},
+        {"name": "Low-Light Camera Noise", "bucket": "Hardware Malfunction", "kw": ["Camera", "Night Vision", "Sensor"]},
+        {"name": "ANPR License Plate Accuracy", "bucket": "UI/UX Bug", "kw": ["Parking", "ANPR", "Detection"]},
+        {"name": "VMS Client Latency", "bucket": "Connectivity Error", "kw": ["VMS", "Network", "Streaming"]},
+        
+        # Access Control & Time-Attendance (COSEC Range)
+        {"name": "COSEC ARGO Face Template Sync", "bucket": "Sync Failure", "kw": ["Biometric", "Sync", "ARGO"]},
+        {"name": "Visitor Management QR Pass", "bucket": "Mobile App Integration", "kw": ["Visitor", "QR Code", "Security"]},
+        {"name": "Anti-Passback Logic Error", "bucket": "Security Enhancement", "kw": ["Logic", "Access", "Door"]},
+        {"name": "Biometric Reader Recognition Speed", "bucket": "Slow Authentication", "kw": ["Fingerprint", "Latency", "Reader"]},
+        {"name": "COSEC VYOM Cloud Integration", "bucket": "Cloud Sync", "kw": ["Cloud", "SaaS", "Management"]},
+        
+        # Telecom (ETERNITY & SARVAM Range)
+        {"name": "IP-PBX SIP Trunk Registration", "bucket": "Connectivity Error", "kw": ["Telecom", "SIP", "Trunk"]},
+        {"name": "VARTA Softphone Call Drop", "bucket": "UI/UX Bug", "kw": ["Mobile", "VoIP", "Softphone"]},
+        {"name": "Gateway Voice Quality Issues", "bucket": "Hardware Malfunction", "kw": ["Gateway", "FXO", "Voice"]},
+        {"name": "SARVAM UCS Multi-site Integration", "bucket": "Compatibility Issue", "kw": ["Telecom", "Unified Comm", "Server"]},
+        {"name": "Emergency Conference Setup", "bucket": "Feature Request", "kw": ["Security", "Crisis", "Conference"]}
+    ]
+
+    # Expand to 30 entries by slightly varying the themes
+    themes_to_create = []
+    for i in range(30):
+        base_theme = random.choice(matrix_themes)
         theme = Theme(
-            intent_bucket=random.choice(intent_buckets),
-            name=f"Fake Theme {i}",
-            keywords=["fake", "test", f"keyword_{i}"],
-            description=f"This is a fake theme description for theme {i}",
-            first_seen=date.today() - timedelta(days=random.randint(10, 100)),
+            intent_bucket=base_theme["bucket"],
+            name=f"{base_theme['name']} - Case {i+1}",
+            keywords=base_theme["kw"] + [f"Matrix_{i}"],
+            description=f"Automated analysis of {base_theme['name']} regarding customer implementation at site {random.randint(100, 500)}.",
+            first_seen=date.today() - timedelta(days=random.randint(30, 365)),
             last_seen=date.today(),
-            item_count=random.randint(1, 20),
-            is_outlier=False
+            item_count=random.randint(5, 50),
+            is_outlier=random.random() < 0.1
         )
         db.add(theme)
-        themes.append(theme)
-    db.flush() # flush to get theme ids
+        themes_to_create.append(theme)
     
-    for i, theme in enumerate(themes):
-        # Generate FeedbackRaw
+    db.flush() 
+
+    # Generate linked feedback and processing data
+    for i, theme in enumerate(themes_to_create):
         raw_id = str(uuid.uuid4())
+        
+        # Realistic feedback text based on theme
+        feedback_samples = [
+            f"The {theme.name} is causing significant delays at our main entrance.",
+            f"Need improvement on {theme.name} for our upcoming manufacturing plant deployment.",
+            f"Customer reported a {theme.intent_bucket} related to {theme.name} during the night shift.",
+            f"Technical support request for {theme.name} integration with third-party HRMS."
+        ]
+        
         raw = FeedbackRaw(
             id=raw_id,
-            source=random.choice(["Zendesk", "Intercom", "Jira", "Survey"]),
-            segment=random.choice(["Enterprise", "Mid-Market", "SMB"]),
-            customer_id=f"CUST-{random.randint(1000, 9999)}",
-            date=date.today() - timedelta(days=random.randint(0, 150)),
-            raw_text=f"This is a fake feedback message {i} for {theme.name}",
-            metadata_col={"fake": True},
+            source=random.choice(["Partner Portal", "Technical Support", "Direct Inquiry", "Customer Email"]),
+            segment=random.choice(["Manufacturing", "Hospitality", "BFSI", "Education", "Healthcare"]),
+            customer_id=f"MATRIX-CUST-{random.randint(10000, 99999)}",
+            date=date.today() - timedelta(days=random.randint(0, 30)),
+            raw_text=random.choice(feedback_samples),
+            metadata_col={"product_line": theme.name.split()[0], "region": "India-Vadodara"},
             processed=True
         )
         db.add(raw)
-        db.flush() # flush to avoid foreign key violation
-        
-        # Generate FeedbackProcessed
+        db.flush()
+
         processed = FeedbackProcessed(
             feedback_id=raw_id,
-            clean_text=f"Cleaned fake feedback message {i}",
+            clean_text=f"Standardized issue: {theme.name}",
             intents=[theme.intent_bucket],
-            sentiment_score=random.uniform(-1.0, 1.0),
-            urgency_keyword_score=random.uniform(0.0, 1.0),
-            arr=random.uniform(1000, 50000),
-            embedding=[0.0] * 384 # Fake embedding
+            sentiment_score=random.uniform(-0.8, 0.4), # Mostly neutral-to-negative for testing
+            urgency_keyword_score=random.uniform(0.3, 0.9),
+            arr=random.uniform(50000, 2000000), # Matrix deals with large enterprise contracts
+            embedding=[random.uniform(-1, 1) for _ in range(384)]
         )
         db.add(processed)
+
+        # Linking and Metrics
+        db.add(ThemeItem(theme_id=theme.id, feedback_id=raw_id))
+        db.add(ThemeWeeklyCount(
+            theme_id=theme.id, 
+            week_start=date.today() - timedelta(days=date.today().weekday()), 
+            count=random.randint(1, 15)
+        ))
         
-        # Generate ThemeItem linking FeedbackRaw and Theme
-        theme_item = ThemeItem(
-            theme_id=theme.id,
-            feedback_id=raw_id
-        )
-        db.add(theme_item)
-        
-        # Generate ThemeWeeklyCount
-        week_start = date.today() - timedelta(days=date.today().weekday())
-        weekly_count = ThemeWeeklyCount(
-            theme_id=theme.id,
-            week_start=week_start,
-            count=random.randint(1, 10)
-        )
-        db.add(weekly_count)
-        
-        # Generate Opportunity
-        opp = Opportunity(
+        # Opportunities focused on ROI for Security hardware
+        db.add(Opportunity(
             theme_id=theme.id,
             intent_bucket=theme.intent_bucket,
             frequency=theme.item_count,
-            total_arr=random.uniform(5000, 100000),
-            avg_sentiment=random.uniform(-1.0, 1.0),
-            avg_urgency=random.uniform(0.0, 1.0),
-            avg_source_weight=random.uniform(0.5, 1.5),
-            velocity=random.uniform(-10.0, 10.0),
-            alignment_score=random.uniform(0.0, 1.0),
-            alignment_reason="Fake alignment reason",
-            opportunity_score=random.uniform(0.0, 100.0),
+            total_arr=random.uniform(500000, 5000000),
+            avg_sentiment=random.uniform(-0.5, 0.5),
+            avg_urgency=random.uniform(0.5, 1.0),
+            avg_source_weight=1.2,
+            velocity=random.uniform(-5.0, 15.0),
+            alignment_score=random.uniform(0.6, 0.95),
+            alignment_reason=f"High strategic value for {raw.segment} vertical.",
+            opportunity_score=random.uniform(40.0, 95.0),
             priority_label=random.choice(priorities),
             updated_at=date.today()
-        )
-        db.add(opp)
+        ))
         
     db.commit()
-    return {"message": "Successfully generated 10 fake entries in all tables."}
+    return {"message": "Successfully generated 30 Matrix Comsec related entries."}
+
+@router.delete("/wipe-data")
+def wipe_all_data(db: Session = Depends(get_db)):
+
+    """
+    Deletes ALL rows from all tables.
+    Useful for resetting local/dev database.
+    """
+
+    try:
+        # Delete child tables first (important because of FK constraints)
+        db.query(ThemeItem).delete()
+        db.query(ThemeWeeklyCount).delete()
+        db.query(Opportunity).delete()
+        db.query(FeedbackProcessed).delete()
+        db.query(FeedbackRaw).delete()
+        db.query(Theme).delete()
+
+        db.commit()
+
+        return {
+            "message": "All table data wiped successfully."
+        }
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to wipe database: {str(e)}"
+        )
+    
+@router.post("/api/v1/chat")
+async def ask_your_data(query: ChatQuery, db: Session = Depends(get_db)):
+    """
+    Hybrid RAG Chatbot: 
+    1. Vector searches specific feedback.
+    2. Joins those matches to Theme/Opportunity for aggregate stats (frequency, ARR).
+    3. Pulls global top issues for broad questions.
+    """
+    try:
+        global embedder
+        print(f"💬 [CHATBOT] User asks: '{query.question}'")
+        question_embedding = embedder.encode(query.question).tolist()
+        search_query = text("""
+            SELECT fp.feedback_id, fp.clean_text, fp.intents, fp.arr, fr.source, fr.segment
+            FROM feedback_processed fp
+            JOIN feedback_raw fr ON fp.feedback_id = fr.id
+            ORDER BY fp.embedding <=> :q_emb
+            LIMIT 10
+        """)
+        
+        raw_results = db.execute(search_query, {"q_emb": str(question_embedding)}).fetchall()
+        
+        if not raw_results:
+            return {"answer": "I don't have any data matching that query yet."}
+        feedback_ids = [r.feedback_id for r in raw_results]
+
+        theme_results = db.execute(
+            select(
+                Theme.name, 
+                Theme.intent_bucket, 
+                Opportunity.frequency, 
+                Opportunity.total_arr, 
+                Opportunity.priority_label,
+                Opportunity.velocity
+            )
+            .join(ThemeItem, ThemeItem.theme_id == Theme.id)
+            .join(Opportunity, Opportunity.theme_id == Theme.id)
+            .where(ThemeItem.feedback_id.in_(feedback_ids))
+            .distinct()
+        ).all()
+
+        global_results = db.execute(
+            select(Theme.name, Opportunity.intent_bucket, Opportunity.frequency, Opportunity.priority_label)
+            .join(Theme, Theme.id == Opportunity.theme_id)
+            .order_by(Opportunity.opportunity_score.desc())
+            .limit(5)
+        ).all()
+
+        context_block = "=== RELEVANT AGGREGATED THEMES (Use this for frequency, ARR, or priority questions) ===\n"
+        for r in theme_results:
+            context_block += f"- Theme: {r.name} | Category: {r.intent_bucket} | Frequency: {r.frequency} | ARR at Risk: ${r.total_arr} | Priority: {r.priority_label}\n"
+
+        context_block += "\n=== RELEVANT SPECIFIC FEEDBACK (Use this for specific customer quotes/examples) ===\n"
+        for i, row in enumerate(raw_results):
+            context_block += f"[{i+1}] Segment: {row.segment} | Source: {row.source} | ARR: ${row.arr}\n"
+            context_block += f"    Feedback: {row.clean_text}\n"
+
+        context_block += "\n=== GLOBAL SYSTEM TOP 5 ISSUES (Use ONLY if user asks for general 'top', 'highest', or 'most frequent' issues overall) ===\n"
+        for r in global_results:
+            context_block += f"- {r.name} ({r.intent_bucket}) - {r.frequency} mentions, Priority: {r.priority_label}\n"
+
+        system_prompt = """
+        You are an AI Product Analyst for a B2B SaaS company. 
+        You are answering a question from leadership based on customer feedback.
+        
+        RULES:
+        1. Base your answer STRICTLY on the Context provided below. Do not make up information.
+        2. If the user asks about the "frequency", "priority", or "total impact" of a specific issue, use the 'RELEVANT AGGREGATED THEMES' data.
+        3. If the user asks for examples or specific details, use the 'RELEVANT SPECIFIC FEEDBACK' data.
+        4. If the user asks broad questions like "What are the most frequent bugs?", use the 'GLOBAL SYSTEM TOP 5 ISSUES'.
+        5. If the context does not contain the answer, say "I don't have enough data to answer that."
+        6. Cite the segments and ARR impact where relevant to show business value.
+        """
+        
+        client = Groq(api_key=settings.GROQ_API_KEY)
+
+        response = client.chat.completions.create(
+            model="llama-3.1-8b-instant", # Or llama-3.3-70b-versatile for smarter routing
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Context Database Records:\n{context_block}\n\nUser Question: {query.question}"}
+            ]
+        )
+        
+        final_answer = response.choices[0].message.content
+
+        return {
+            "question": query.question,
+            "answer": final_answer,
+            "sources_used": len(raw_results),
+            "themes_referenced": len(theme_results)
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
